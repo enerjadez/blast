@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.zips/
+blast-inbox/
+*.blastpart
+.DS_Store
+Thumbs.db

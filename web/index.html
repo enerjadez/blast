@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#09090b" />
+  <title>BLAST</title>
+  <style>
+    :root {
+      --bg: #09090b;
+      --card: #16161a;
+      --line: #2a2a31;
+      --text: #f4f4f5;
+      --mute: #8b8b96;
+      --dim: #5c5c66;
+      --lime: #d6ff3f;
+      --lime-ink: #141806;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      min-height: 100dvh;
+      -webkit-tap-highlight-color: transparent;
+    }
+    button, input { font: inherit; }
+    .app { max-width: 1040px; margin: 0 auto; padding: 18px 16px 72px; }
+
+    header { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; align-items: flex-start; }
+    .logo { font-weight: 800; letter-spacing: .22em; font-size: 13px; color: var(--lime); margin: 0; }
+    .you {
+      margin: 6px 0 0;
+      font-size: 22px; font-weight: 750; letter-spacing: -.03em;
+    }
+    .sub { color: var(--mute); font-size: 13px; margin-top: 4px; }
+
+    .peers { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 7px;
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 999px; padding: 6px 10px; font-size: 12px; font-weight: 600;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #3f3f46; }
+    .pill.on .dot { background: var(--lime); box-shadow: 0 0 8px #d6ff3f88; }
+    .pill.me { border-color: #4a5a18; }
+
+    .linkbox {
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; padding: 8px 8px 8px 12px; max-width: 100%;
+    }
+    .url { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px; word-break: break-all; flex: 1; min-width: 140px; }
+    .btn {
+      border: 0; background: #23232a; color: var(--text);
+      padding: 8px 12px; border-radius: 8px; cursor: pointer;
+      font-size: 13px; font-weight: 600;
+    }
+    .btn:hover { background: #2d2d36; }
+    .btn.lime { background: var(--lime); color: var(--lime-ink); }
+    .btn.ghost { background: transparent; border: 1px solid var(--line); }
+    .btn.warn { background: transparent; border: 1px solid var(--line); color: var(--mute); }
+
+    .grid { display: grid; gap: 14px; grid-template-columns: 1fr; }
+    @media (min-width: 840px) {
+      .grid { grid-template-columns: 1fr 1fr; align-items: start; }
+    }
+    .panel {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 16px; padding: 16px;
+    }
+    .panel h2 {
+      margin: 0 0 4px; font-size: 15px; font-weight: 750;
+    }
+    .panel .why { color: var(--mute); font-size: 13px; margin: 0 0 14px; }
+
+    .drop {
+      border: 1.5px dashed #3a3a44; border-radius: 14px;
+      min-height: 150px; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 6px;
+      text-align: center; padding: 22px 12px; cursor: pointer;
+    }
+    .drop.hot, .drop:hover { border-color: var(--lime); background: #161a0c; }
+    .drop b { font-size: 16px; }
+    .drop span { color: var(--mute); font-size: 13px; }
+    .row-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+
+    #qrwrap { display: none; margin-top: 14px; text-align: center; }
+    #qrwrap.show { display: block; }
+    #qr { background: #fff; padding: 10px; border-radius: 12px; display: inline-block; }
+    #qr img { display: block; width: 168px; height: 168px; }
+    .hint { color: var(--dim); font-size: 12px; margin: 8px 0 0; }
+
+    .meter {
+      display: none; margin-top: 14px; padding: 14px;
+      background: #10120a; border: 1px solid #3a4a12; border-radius: 12px;
+    }
+    .meter.on { display: block; }
+    .meter-top { display: flex; gap: 14px; align-items: flex-end; }
+    .meter .num { font-family: Consolas, "Cascadia Mono", monospace; font-size: 36px; line-height: 1; font-weight: 700; color: var(--lime); }
+    .meter .unit { color: var(--mute); font-size: 11px; letter-spacing: .12em; }
+    .meter-info { flex: 1; min-width: 0; }
+    .bar { height: 6px; background: #222; border-radius: 99px; overflow: hidden; margin: 8px 0 6px; }
+    .bar > i { display: block; height: 100%; width: 0; background: var(--lime); }
+    .meter .meta { color: var(--mute); font-size: 12px; }
+    #graph { display: block; width: 100%; height: 88px; margin-top: 10px; }
+
+    .file { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .file:last-child { border-bottom: 0; }
+    .ico {
+      width: 36px; height: 36px; border-radius: 8px; background: #222228;
+      display: grid; place-items: center; font-size: 10px; font-weight: 800; color: var(--lime); flex: 0 0 auto;
+    }
+    .file .info { flex: 1; min-width: 0; }
+    .file .name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .file .sub { color: var(--mute); font-size: 12px; margin-top: 2px; }
+    .file .acts { display: flex; gap: 6px; flex: 0 0 auto; }
+    .empty { color: var(--dim); font-size: 13px; padding: 16px 0; }
+    .crumbs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .crumbs button { background: none; border: 0; color: var(--lime); cursor: pointer; padding: 0; font-size: 13px; }
+    .crumbs span { color: var(--dim); }
+    .err { display: none; margin-top: 12px; padding: 10px 12px; background: #2a1216; border: 1px solid #5a2430; color: #fecdd3; border-radius: 10px; font-size: 13px; }
+    .err.on { display: block; }
+    footer { margin-top: 20px; color: var(--dim); font-size: 12px; line-height: 1.55; }
+    #toast {
+      position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%) translateY(20px);
+      background: var(--lime); color: var(--lime-ink); font-weight: 700;
+      padding: 10px 14px; border-radius: 999px; opacity: 0; pointer-events: none; transition: .2s ease; z-index: 20;
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    body.pc .tablet-only { display: none !important; }
+    body.tablet .pc-only { display: none !important; }
+    body.tablet .linkbox { display: none; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <p class="logo">BLAST</p>
+        <div class="you" id="who">Connecting…</div>
+        <div class="sub" id="tag"></div>
+        <div class="peers" id="peers"></div>
+      </div>
+      <div class="linkbox pc-only" id="linkbox">
+        <div class="url" id="url"></div>
+        <button class="btn" id="copyBtn" type="button">Copy link</button>
+        <button class="btn ghost" id="qrBtn" type="button">QR</button>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section class="panel" id="sendPanel">
+        <h2 id="sendTitle">Send</h2>
+        <p class="why" id="sendWhy"></p>
+
+        <div class="drop tablet-only" id="drop" tabindex="0">
+          <b>Tap to pick files</b>
+          <span>or drop them here — they go to the PC</span>
+        </div>
+        <div class="row-btns tablet-only">
+          <button class="btn lime" id="pickBtn" type="button">Pick files to send</button>
+        </div>
+        <div class="row-btns pc-only">
+          <button class="btn lime" id="diskBtn" type="button">Share files</button>
+          <button class="btn" id="folderBtn" type="button">Share a folder</button>
+        </div>
+
+        <div class="meter" id="meter">
+          <div class="meter-top">
+            <div>
+              <div class="num" id="mbps">0</div>
+              <div class="unit">MB/s</div>
+            </div>
+            <div class="meter-info">
+              <div class="meta" id="speedMeta"></div>
+              <div class="bar"><i id="bar"></i></div>
+            </div>
+          </div>
+          <canvas id="graph" width="640" height="120"></canvas>
+        </div>
+        <div class="err" id="err"></div>
+        <div id="qrwrap" class="pc-only">
+          <div id="qr"><img id="qrimg" alt="Scan to join BLAST" width="168" height="168" /></div>
+          <p class="hint">Scan with the tablet camera</p>
+        </div>
+        <div id="sharing" class="pc-only"></div>
+      </section>
+
+      <section class="panel" id="recvPanel">
+        <h2 id="recvTitle">Receive</h2>
+        <p class="why" id="recvWhy"></p>
+        <div class="crumbs" id="crumbs" hidden></div>
+        <div id="list"><div class="empty">Waiting…</div></div>
+        <div class="row-btns pc-only" style="margin-top:12px">
+          <button class="btn ghost" id="inboxBtn" type="button">Open inbox folder</button>
+        </div>
+      </section>
+    </div>
+
+    <footer id="foot"></footer>
+  </div>
+  <div id="toast"></div>
+  <input id="fileInput" type="file" multiple hidden />
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const state = { boot: null, browse: null, busy: false, name: "", last: { shared: [], inbox: [], peers: [] } };
+
+    const guessName = () => {
+      const ua = navigator.userAgent || "";
+      if (/iPad/i.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) return "iPad";
+      if (/iPhone/i.test(ua)) return "iPhone";
+      if (/Android/i.test(ua) && /Mobile/i.test(ua)) return "Phone";
+      if (/Android/i.test(ua)) return "Tablet";
+      return "PC";
+    };
+
+    const toast = (msg) => {
+      const el = $("toast");
+      el.textContent = msg;
+      el.classList.add("show");
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => el.classList.remove("show"), 1800);
+    };
+    const showErr = (msg) => {
+      const el = $("err");
+      if (!msg) { el.classList.remove("on"); el.textContent = ""; return; }
+      el.textContent = msg;
+      el.classList.add("on");
+    };
+    const fmt = (n) => {
+      if (n == null) return "—";
+      const u = ["B", "KB", "MB", "GB", "TB"];
+      let i = 0, x = n;
+      while (x >= 1024 && i < u.length - 1) { x /= 1024; i++; }
+      return `${x >= 10 || i === 0 ? x.toFixed(0) : x.toFixed(1)} ${u[i]}`;
+    };
+    const extOf = (name) => {
+      const e = (name.split(".").pop() || "").toUpperCase();
+      return e.length <= 4 ? e : "FILE";
+    };
+    const otherName = () => {
+      const peers = state.last.peers || [];
+      if (state.boot?.local) {
+        const tab = peers.find((p) => !p.local);
+        return tab ? tab.name : "tablet";
+      }
+      return state.boot?.host || "PC";
+    };
+
+    const api = async (path, opt = {}) => {
+      const token = state.boot?.token || location.pathname.split("/").filter(Boolean)[1];
+      const res = await fetch(`/r/${token}${path}`, opt);
+      if (!res.ok) {
+        let detail = `${res.status}`;
+        try { const j = await res.json(); detail = j.error || detail; } catch {}
+        throw new Error(detail);
+      }
+      const ct = res.headers.get("content-type") || "";
+      return ct.includes("json") ? res.json() : res;
+    };
+
+    const meter = {
+      samples: [],
+      lastT: 0,
+      lastB: 0,
+      ema: 0,
+      hideT: 0,
+      start(label, total) {
+        this.samples = [];
+        this.lastT = performance.now();
+        this.lastB = 0;
+        this.ema = 0;
+        clearTimeout(this.hideT);
+        this.tick(0, total, label);
+      },
+      tick(done, total, label) {
+        const now = performance.now();
+        const dt = (now - this.lastT) / 1000;
+        const db = done - this.lastB;
+        const inst = dt > 0.04 ? (db / 1048576) / dt : this.ema;
+        this.ema = this.ema ? this.ema * 0.7 + inst * 0.3 : inst;
+        this.lastT = now;
+        this.lastB = done;
+        this.samples.push({ t: now, mbps: this.ema });
+        const cutoff = now - 20000;
+        this.samples = this.samples.filter((s) => s.t >= cutoff);
+        $("meter").classList.add("on");
+        $("mbps").textContent = this.ema >= 100 ? this.ema.toFixed(0) : this.ema.toFixed(1);
+        const pct = total ? (done / total) * 100 : 0;
+        $("bar").style.width = `${Math.max(0, Math.min(100, pct))}%`;
+        $("speedMeta").textContent = label || `${fmt(done)}${total ? " / " + fmt(total) : ""}`;
+        this.draw();
+      },
+      finish(label) {
+        $("speedMeta").textContent = label || "done";
+        $("bar").style.width = "100%";
+        this.hideT = setTimeout(() => $("meter").classList.remove("on"), 5000);
+      },
+      draw() {
+        const c = $("graph");
+        const ctx = c.getContext("2d");
+        const w = c.width, h = c.height;
+        ctx.clearRect(0, 0, w, h);
+        ctx.fillStyle = "#0c0e08";
+        ctx.fillRect(0, 0, w, h);
+        if (this.samples.length < 2) return;
+        const max = Math.max(1, ...this.samples.map((s) => s.mbps));
+        const t0 = this.samples[0].t;
+        const span = Math.max(1000, this.samples[this.samples.length - 1].t - t0);
+        ctx.beginPath();
+        this.samples.forEach((s, i) => {
+          const x = ((s.t - t0) / span) * (w - 8) + 4;
+          const y = h - 8 - (s.mbps / max) * (h - 16);
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.strokeStyle = "#d6ff3f";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        const last = this.samples[this.samples.length - 1];
+        ctx.lineTo(((last.t - t0) / span) * (w - 8) + 4, h - 4);
+        ctx.lineTo(4, h - 4);
+        ctx.closePath();
+        ctx.fillStyle = "rgba(214,255,63,.12)";
+        ctx.fill();
+        ctx.fillStyle = "#5c5c66";
+        ctx.font = "11px Consolas, monospace";
+        ctx.fillText(max.toFixed(max >= 10 ? 0 : 1) + " MB/s", 8, 14);
+      },
+    };
+
+    function paintChrome() {
+      const local = !!state.boot.local;
+      document.body.classList.toggle("pc", local);
+      document.body.classList.toggle("tablet", !local);
+      const host = state.boot.host || "PC";
+      const other = otherName();
+      if (local) {
+        $("who").textContent = `You're the PC`;
+        $("tag").textContent = `${host} is hosting. Tablet pulls from here.`;
+        $("sendTitle").textContent = `Share with ${other}`;
+        $("sendWhy").textContent = "Pick stuff on this computer. The tablet can save it — no extra copy on the PC.";
+        $("recvTitle").textContent = `From ${other}`;
+        $("recvWhy").textContent = `Files the tablet sends land in ${state.boot.inbox}`;
+        $("foot").textContent = "This PC is a tiny local file server. Nothing leaves your Wi‑Fi.";
+        $("url").textContent = state.boot.url;
+        $("qrimg").src = `/r/${state.boot.token}/api/qr`;
+        $("qrwrap").classList.add("show");
+      } else {
+        $("who").textContent = `You're the ${state.name || "tablet"}`;
+        $("tag").textContent = `Talking to ${host} on your Wi‑Fi — not the internet.`;
+        $("sendTitle").textContent = `Send to ${host}`;
+        $("sendWhy").textContent = "These files copy onto the PC.";
+        $("recvTitle").textContent = `Get from ${host}`;
+        $("recvWhy").textContent = "Tap save. The PC is offering these — like a shared drive.";
+        $("foot").textContent = `Saving a file downloads it to this ${state.name || "tablet"}. Sending uploads it to the PC inbox.`;
+      }
+    }
+
+    function renderPeers(peers) {
+      const el = $("peers");
+      el.innerHTML = "";
+      const list = peers && peers.length ? peers : [
+        { name: state.boot?.host || "PC", local: true, kind: "pc" },
+      ];
+      list.forEach((p) => {
+        const mine = state.boot?.local ? p.local : !p.local;
+        const pill = document.createElement("div");
+        pill.className = "pill on" + (mine ? " me" : "");
+        pill.innerHTML = `<span class="dot"></span>`;
+        const label = document.createElement("span");
+        label.textContent = p.local
+          ? `${p.name} · PC${mine ? " · you" : ""}`
+          : `${p.name}${mine ? " · you" : ""}`;
+        pill.appendChild(label);
+        el.appendChild(pill);
+      });
+    }
+
+    async function boot() {
+      state.name = guessName();
+      const parts = location.pathname.split("/").filter(Boolean);
+      const token = parts[0] === "r" ? parts[1] : "";
+      const res = await fetch(`/r/${token}/api/session?name=${encodeURIComponent(state.name)}`);
+      if (!res.ok) throw new Error("Bad or missing link. Open the URL shown on the PC.");
+      state.boot = await res.json();
+      if (state.boot.local) state.name = state.boot.host || "PC";
+      paintChrome();
+      renderPeers(state.boot.peers || []);
+      try { await navigator.wakeLock?.request("screen"); } catch {}
+      await refresh();
+    }
+
+    async function refresh() {
+      const data = await api(`/api/state?name=${encodeURIComponent(state.name)}`);
+      state.last = data;
+      renderPeers(data.peers || []);
+      if (state.boot?.local) {
+        $("sendTitle").textContent = `Share with ${otherName()}`;
+        $("recvTitle").textContent = `From ${otherName()}`;
+        renderSharing(data.shared || []);
+        if (state.browse) return browseCurrent();
+        renderIncoming(data.inbox || []);
+      } else {
+        $("sendTitle").textContent = `Send to ${state.boot.host}`;
+        if (state.browse) return browseCurrent();
+        renderOffer(data.shared || []);
+      }
+    }
+
+    async function browseCurrent() {
+      const q = new URLSearchParams({ p: state.browse.path || "" });
+      const data = await api(`/api/browse/${state.browse.id}?${q}`);
+      renderCrumbs(data);
+      renderEntries(data.entries, true);
+    }
+
+    function renderCrumbs(data) {
+      const el = $("crumbs");
+      el.hidden = false;
+      const parts = (data.path || "").split("/").filter(Boolean);
+      el.innerHTML = "";
+      const home = document.createElement("button");
+      home.type = "button";
+      home.textContent = data.name;
+      home.onclick = () => { state.browse.path = ""; refresh(); };
+      el.appendChild(home);
+      let acc = "";
+      parts.forEach((p) => {
+        acc += (acc ? "/" : "") + p;
+        const sep = document.createElement("span");
+        sep.textContent = "/";
+        el.appendChild(sep);
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = p;
+        const at = acc;
+        b.onclick = () => { state.browse.path = at; refresh(); };
+        el.appendChild(b);
+      });
+    }
+
+    function row(item, buttons) {
+      const el = document.createElement("div");
+      el.className = "file";
+      el.innerHTML = `
+        <div class="ico">${item.kind === "dir" || item.dir ? "DIR" : extOf(item.name)}</div>
+        <div class="info"><div class="name"></div><div class="sub"></div></div>
+        <div class="acts"></div>
+      `;
+      el.querySelector(".name").textContent = item.name;
+      el.querySelector(".sub").textContent = item.sub;
+      const acts = el.querySelector(".acts");
+      buttons.forEach((b) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn " + (b.cls || "");
+        btn.textContent = b.label;
+        btn.onclick = b.onclick;
+        acts.appendChild(btn);
+      });
+      return el;
+    }
+
+    function renderSharing(items) {
+      const el = $("sharing");
+      if (!items.length) {
+        el.innerHTML = `<div class="empty">Nothing shared yet. Share a file or a folder — the tablet will see it instantly.</div>`;
+        return;
+      }
+      el.innerHTML = "";
+      items.forEach((item) => {
+        el.appendChild(row({
+          ...item,
+          sub: item.kind === "dir" ? "folder on this PC · tablet can browse it" : `${fmt(item.size)} · sitting on this PC`,
+        }, [
+          ...(item.kind === "dir" ? [{ label: "Preview", onclick: () => { state.browse = { id: item.id, path: "", name: item.name }; refresh(); } }] : []),
+          { label: "Stop sharing", cls: "warn", onclick: () => unshare(item.id) },
+        ]));
+      });
+    }
+
+    function renderIncoming(items) {
+      $("crumbs").hidden = true;
+      const el = $("list");
+      if (!items.length) {
+        el.innerHTML = `<div class="empty">Waiting for the tablet to send something.</div>`;
+        return;
+      }
+      el.innerHTML = "";
+      items.forEach((item) => {
+        el.appendChild(row({
+          ...item,
+          sub: `${fmt(item.size)} · from ${item.from} · already on this PC`,
+        }, [
+          { label: "Show in folder", cls: "lime", onclick: () => reveal(item.id) },
+        ]));
+      });
+    }
+
+    function renderOffer(items) {
+      $("crumbs").hidden = true;
+      const el = $("list");
+      if (!items.length) {
+        el.innerHTML = `<div class="empty">${state.boot.host} hasn’t shared anything yet. On the PC, hit Share files.</div>`;
+        return;
+      }
+      el.innerHTML = "";
+      items.forEach((item) => {
+        if (item.kind === "dir") {
+          el.appendChild(row({
+            ...item,
+            sub: `folder on ${state.boot.host}`,
+          }, [
+            { label: "Open", onclick: () => { state.browse = { id: item.id, path: "", name: item.name }; refresh(); } },
+            { label: "Save folder", cls: "lime", onclick: () => downloadZip(item.id, "", item.name) },
+          ]));
+        } else {
+          el.appendChild(row({
+            ...item,
+            sub: `${fmt(item.size)} · on ${state.boot.host}`,
+          }, [
+            { label: "Save to tablet", cls: "lime", onclick: () => downloadShare(item) },
+          ]));
+        }
+      });
+    }
+
+    function renderEntries(entries) {
+      const el = $("list");
+      if (!entries.length) {
+        el.innerHTML = `<div class="empty">Empty folder.</div>`;
+        return;
+      }
+      el.innerHTML = "";
+      const up = document.createElement("div");
+      up.className = "file";
+      up.innerHTML = `<div class="ico">UP</div><div class="info"><div class="name">Back</div><div class="sub">parent folder</div></div>`;
+      up.onclick = () => {
+        const parts = (state.browse.path || "").split("/").filter(Boolean);
+        parts.pop();
+        if (!parts.length && state.boot?.local) { state.browse = null; refresh(); return; }
+        state.browse.path = parts.join("/");
+        refresh();
+      };
+      el.appendChild(up);
+      entries.forEach((item) => {
+        if (item.dir) {
+          el.appendChild(row({
+            ...item,
+            sub: "folder",
+          }, [
+            { label: "Open", onclick: () => { state.browse.path = item.path; refresh(); } },
+            ...(!state.boot.local ? [{ label: "Save folder", cls: "lime", onclick: () => downloadZip(state.browse.id, item.path, item.name) }] : []),
+          ]));
+        } else {
+          el.appendChild(row({
+            ...item,
+            sub: fmt(item.size),
+          }, [
+            { label: state.boot.local ? "Show" : "Save to tablet", cls: "lime", onclick: () => {
+              if (state.boot.local) return;
+              downloadPath(state.browse.id, item.path, item.name, item.size);
+            } },
+          ]));
+        }
+      });
+    }
+
+    async function unshare(id) {
+      await api("/api/unshare", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+      toast("Stopped sharing");
+      refresh();
+    }
+    async function reveal(id) {
+      await api("/api/reveal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(id ? { id } : { inbox: true }) });
+    }
+
+    const BLOB_CAP = 180 * 1024 * 1024;
+
+    function downloadShare(item) {
+      const url = `/r/${state.boot.token}/api/dl/${item.id}`;
+      pullFile(url, item.name, item.size || 0);
+    }
+    function downloadPath(id, path, name, size) {
+      const q = new URLSearchParams({ p: path || "" });
+      pullFile(`/r/${state.boot.token}/api/dl/${id}?${q}`, name, size || 0);
+    }
+    function downloadZip(id, path, name) {
+      const job = crypto.randomUUID();
+      const q = new URLSearchParams({ p: path || "", job });
+      const url = `/r/${state.boot.token}/api/zip/${id}?${q}`;
+      meter.start(`packing ${name}…`, 0);
+      const poll = setInterval(async () => {
+        try {
+          const j = await api(`/api/job/${job}`);
+          if (j.phase === "packing") {
+            meter.tick(0, 0, `zipping ${name}…`);
+          } else if (j.total) {
+            meter.tick(j.done, j.total, `${name}.zip · ${fmt(j.done)} / ${fmt(j.total)}`);
+          }
+          if (j.finished) {
+            clearInterval(poll);
+            if (j.error) showErr(j.error);
+            else meter.finish(`saved ${name}.zip`);
+          }
+        } catch {}
+      }, 250);
+      nativeSave(url, `${name}.zip`);
+      setTimeout(() => clearInterval(poll), 30 * 60 * 1000);
+    }
+
+    async function pullFile(url, name, size) {
+      showErr("");
+      if (state.busy) { toast("Wait for the current transfer"); return; }
+      if (size && size > BLOB_CAP) {
+        const job = crypto.randomUUID();
+        meter.start(name, size);
+        watchJob(job, name, size);
+        nativeSave(`${url}${url.includes("?") ? "&" : "?"}job=${job}&n=${Date.now()}`, name);
+        return;
+      }
+      state.busy = true;
+      meter.start(name, size);
+      try {
+        const res = await fetch(`${url}${url.includes("?") ? "&" : "?"}n=${Date.now()}`, { cache: "no-store" });
+        if (!res.ok) throw new Error(`download failed (${res.status})`);
+        const total = parseInt(res.headers.get("content-length") || size || 0, 10);
+        if (total > BLOB_CAP) {
+          const job = crypto.randomUUID();
+          watchJob(job, name, total);
+          nativeSave(`${url}${url.includes("?") ? "&" : "?"}job=${job}&n=${Date.now()}`, name);
+          return;
+        }
+        const reader = res.body.getReader();
+        const chunks = [];
+        let got = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          got += value.byteLength;
+          meter.tick(got, total || got, `${name} · ${fmt(got)}${total ? " / " + fmt(total) : ""}`);
+        }
+        const blob = new Blob(chunks, { type: "application/octet-stream" });
+        const href = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = href;
+        a.download = name;
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { a.remove(); URL.revokeObjectURL(href); }, 60000);
+        meter.finish(`saved ${name}`);
+        toast("Saved to tablet");
+      } catch (e) {
+        showErr(e.message || String(e));
+      } finally {
+        state.busy = false;
+      }
+    }
+
+    function nativeSave(url, name) {
+      const frame = document.getElementById("dlframe") || Object.assign(document.createElement("iframe"), { id: "dlframe" });
+      frame.setAttribute("hidden", "");
+      frame.style.display = "none";
+      if (!frame.parentNode) document.body.appendChild(frame);
+      frame.src = url;
+    }
+
+    function watchJob(job, name, size) {
+      const poll = setInterval(async () => {
+        try {
+          const j = await api(`/api/job/${job}`);
+          meter.tick(j.done, j.total || size, `${name} · ${fmt(j.done)} / ${fmt(j.total || size)}`);
+          if (j.finished) {
+            clearInterval(poll);
+            if (j.error) showErr(j.error);
+            else { meter.finish(`saved ${name}`); toast("Saved to tablet"); }
+          }
+        } catch {}
+      }, 250);
+      setTimeout(() => clearInterval(poll), 30 * 60 * 1000);
+    }
+
+    const CHUNK = 8 * 1024 * 1024;
+    const PARALLEL = 8;
+
+    async function uploadFiles(fileList) {
+      const files = [...fileList];
+      if (!files.length || state.busy) return;
+      state.busy = true;
+      showErr("");
+      const total = files.reduce((s, f) => s + f.size, 0);
+      let sentAll = 0;
+      meter.start(files[0].name, total);
+      try {
+        for (const file of files) {
+          await uploadOne(file, {
+            onBytes(n, fileSent, fileSize) {
+              sentAll += n;
+              meter.tick(sentAll, total, `${file.name} · ${fmt(fileSent)} / ${fmt(fileSize)}`);
+            }
+          });
+        }
+        meter.finish(`sent ${fmt(total)}`);
+        toast(`Sent to ${state.boot.host}`);
+        await refresh();
+      } catch (e) {
+        showErr(e.message || String(e));
+      } finally {
+        state.busy = false;
+      }
+    }
+
+    async function uploadOne(file, hooks) {
+      const id = crypto.randomUUID();
+      const chunks = Math.max(1, Math.ceil(file.size / CHUNK));
+      await api(`/api/upload/${id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: file.name, size: file.size, chunks, chunk: CHUNK }),
+      });
+      let next = 0;
+      let fileSent = 0;
+      const worker = async () => {
+        while (true) {
+          const i = next++;
+          if (i >= chunks) return;
+          const start = i * CHUNK;
+          const buf = await file.slice(start, Math.min(start + CHUNK, file.size)).arrayBuffer();
+          const res = await fetch(`/r/${state.boot.token}/api/upload/${id}/${i}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/octet-stream" },
+            body: buf,
+          });
+          if (!res.ok) throw new Error(`chunk ${i} failed (${res.status})`);
+          fileSent += buf.byteLength;
+          hooks.onBytes(buf.byteLength, fileSent, file.size);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(PARALLEL, chunks) }, worker));
+      await api(`/api/upload/${id}/finish`, { method: "POST" });
+    }
+
+    $("pickBtn").onclick = () => $("fileInput").click();
+    $("fileInput").onchange = (e) => { uploadFiles(e.target.files); e.target.value = ""; };
+    const drop = $("drop");
+    drop.onclick = () => $("fileInput").click();
+    drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("hot"); });
+    drop.addEventListener("dragleave", () => drop.classList.remove("hot"));
+    drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("hot"); uploadFiles(e.dataTransfer.files); });
+    document.addEventListener("paste", (e) => {
+      const files = [...(e.clipboardData?.files || [])];
+      if (files.length) uploadFiles(files);
+    });
+    $("copyBtn").onclick = async () => {
+      try { await navigator.clipboard.writeText(state.boot.url); toast("Link copied"); }
+      catch { toast("Copy failed"); }
+    };
+    $("qrBtn").onclick = () => $("qrwrap").classList.toggle("show");
+    $("diskBtn").onclick = async () => {
+      try {
+        const r = await api("/api/pick", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ folder: false }) });
+        toast(r.added ? `Sharing ${r.added} item(s)` : "Nothing picked");
+        refresh();
+      } catch (e) { showErr(e.message); }
+    };
+    $("folderBtn").onclick = async () => {
+      try {
+        const r = await api("/api/pick", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ folder: true }) });
+        toast(r.added ? "Folder is live on the tablet" : "Nothing picked");
+        refresh();
+      } catch (e) { showErr(e.message); }
+    };
+    $("inboxBtn").onclick = () => reveal(null);
+
+    boot().catch((e) => { $("who").textContent = "Offline"; showErr(e.message || String(e)); });
+    setInterval(() => { if (!state.busy) refresh().catch(() => {}); }, 2000);
+  </script>
+</body>
+</html>
