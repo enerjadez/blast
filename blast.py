@@ -140,6 +140,30 @@ def pack_zip(folder: Path, dest: Path, root_name: str) -> int:
     return count
 
 
+def pack_files(pairs: list[tuple[Path, str]], dest: Path) -> int:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    count = 0
+    used: set[str] = set()
+    with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
+        for path, arc in pairs:
+            if not path.is_file():
+                continue
+            name = arc.replace("\\", "/")
+            n = 2
+            key = name.lower()
+            while key in used:
+                stem, suf = Path(arc).stem, Path(arc).suffix
+                name = f"{stem} ({n}){suf}"
+                key = name.lower()
+                n += 1
+            used.add(key)
+            zf.write(path, arcname=name)
+            count += 1
+            if count >= 8000:
+                break
+    return count
+
+
 def fmt_bytes(n: int) -> str:
     x = float(n)
     for unit in ("B", "KB", "MB", "GB", "TB"):
@@ -362,8 +386,11 @@ class Blast:
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "BLAST/1.0"
+    protocol_version = "HTTP/1.1"
+    timeout = 600
     app: Blast
     html: bytes
+    _head_only: bool = False
 
     def log_message(self, fmt: str, *args) -> None:
         msg = fmt % args
@@ -403,6 +430,13 @@ class Handler(BaseHTTPRequestHandler):
         host = ips[0] if ips else "127.0.0.1"
         return f"http://{host}:{self.server.server_port}/r/{self.app.token}/"
 
+    def do_HEAD(self) -> None:
+        self._head_only = True
+        try:
+            self.do_GET()
+        finally:
+            self._head_only = False
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         parts = [unquote(p) for p in parsed.path.split("/") if p]
@@ -423,12 +457,16 @@ class Handler(BaseHTTPRequestHandler):
 
         rest = parts[2:]
         if not rest or rest == [""] or rest[0] not in {"api"}:
+            try:
+                page = WEB.read_bytes()
+            except OSError:
+                page = self.html
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(self.html)))
+            self.send_header("Content-Length", str(len(page)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
-            self.wfile.write(self.html)
+            self.wfile.write(page)
             return
 
         route = rest[1:]
@@ -527,35 +565,51 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 self._json(400, {"error": "bad path"})
                 return
-            job_id = (qs.get("job", [""])[0] or "").strip()
             zip_name = f"{folder.name}.zip"
-            job = self.app.make_job(job_id, zip_name, 0) if job_id else None
-            if job:
-                job.phase = "packing"
-            tmp = ROOT / ".zips"
-            zpath = tmp / f"{uuid.uuid4().hex}.zip"
-            try:
-                pack_zip(folder, zpath, folder.name)
-                size = zpath.stat().st_size
-            except OSError as e:
-                if job:
-                    job.finish(str(e))
-                try:
-                    zpath.unlink(missing_ok=True)
-                except OSError:
-                    pass
-                self._json(500, {"error": f"zip failed: {e}"})
+            if self._head_only:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Disposition", content_disposition(zip_name))
+                self.send_header("Connection", "close")
+                self.end_headers()
                 return
-            if job:
-                job.total = size
-                job.phase = "sending"
-            try:
-                self._send_file(zpath, job=job, download_name=zip_name)
-            finally:
-                try:
-                    zpath.unlink(missing_ok=True)
-                except OSError:
-                    pass
+            job_id = (qs.get("job", [""])[0] or "").strip()
+            self._pack_and_send(zip_name, job_id, lambda dest: pack_zip(folder, dest, folder.name))
+            return
+        if route == ["bundle"]:
+            ids = qs.get("id", [])
+            rels_by = qs.get("p", [])
+            pairs: list[tuple[Path, str]] = []
+            if ids and not rels_by:
+                for sid in ids:
+                    sh = self.app.get(sid)
+                    if not sh or not sh.path.exists():
+                        continue
+                    if sh.kind == "file":
+                        pairs.append((sh.path, sh.name))
+            elif ids and rels_by and len(ids) == 1:
+                sh = self.app.get(ids[0])
+                if sh:
+                    for rel in rels_by:
+                        try:
+                            target = self.app.resolve_child(sh, rel)
+                        except ValueError:
+                            continue
+                        if target.is_file():
+                            pairs.append((target, target.name))
+            if not pairs:
+                self._json(400, {"error": "nothing to zip"})
+                return
+            zip_name = "blast-selected.zip"
+            if self._head_only:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Disposition", content_disposition(zip_name))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                return
+            job_id = (qs.get("job", [""])[0] or "").strip()
+            self._pack_and_send(zip_name, job_id, lambda dest: pack_files(pairs, dest))
             return
         if route[:1] == ["dl"] and len(route) == 2:
             share = self.app.get(route[1])
@@ -575,7 +629,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"error": "bad path"})
                 return
             job_id = (qs.get("job", [""])[0] or "").strip()
-            job = self.app.make_job(job_id, target.name, target.stat().st_size) if job_id else None
+            job = None
+            if job_id and not self._head_only:
+                job = self.app.make_job(job_id, target.name, target.stat().st_size)
             self._send_file(target, job=job)
             return
 
@@ -718,6 +774,35 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._json(200, {"ok": True})
 
+    def _pack_and_send(self, zip_name: str, job_id: str, build) -> None:
+        job = self.app.make_job(job_id, zip_name, 0) if job_id else None
+        if job:
+            job.phase = "packing"
+        tmp = ROOT / ".zips"
+        zpath = tmp / f"{uuid.uuid4().hex}.zip"
+        try:
+            build(zpath)
+            size = zpath.stat().st_size
+        except OSError as e:
+            if job:
+                job.finish(str(e))
+            try:
+                zpath.unlink(missing_ok=True)
+            except OSError:
+                pass
+            self._json(500, {"error": f"zip failed: {e}"})
+            return
+        if job:
+            job.total = size
+            job.phase = "sending"
+        try:
+            self._send_file(zpath, job=job, download_name=zip_name)
+        finally:
+            try:
+                zpath.unlink(missing_ok=True)
+            except OSError:
+                pass
+
     def _send_file(self, path: Path, job: Job | None = None, download_name: str | None = None) -> None:
         try:
             size = path.stat().st_size
@@ -728,43 +813,36 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "unreadable"})
             return
         name = download_name or path.name
-        rng = self.headers.get("Range")
-        start, end = 0, size - 1
-        code = 200
-        if rng and rng.startswith("bytes=") and size:
-            spec = rng.split("=", 1)[1].split("-")
-            try:
-                if spec[0]:
-                    start = int(spec[0])
-                if spec[1]:
-                    end = int(spec[1])
-                end = min(end, size - 1)
-                if start < 0 or start > end:
-                    raise ValueError
-                code = 206
-            except ValueError:
-                start, end = 0, size - 1
-                code = 200
-        length = end - start + 1 if size else 0
+        # Full file only. Partial Range replies were leaving Android downloads stuck
+        # in the 3-slot queue so later saves failed.
+        start, end, code = 0, max(size - 1, 0), 200
+        length = size
         self.send_response(code)
         # octet-stream + close: Android Chrome won't preview, and won't hang at 100% on keep-alive
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Content-Length", str(length))
-        self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Disposition", content_disposition(name))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
         self.send_header("Pragma", "no-cache")
         self.send_header("Connection", "close")
-        if code == 206:
-            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
         self.end_headers()
         self.close_connection = True
+        if self._head_only:
+            fh.close()
+            return
+        if job:
+            with job.lock:
+                job.done = start
+                job.total = size
+                job.phase = "sending"
+                job.finished = False
+                job.error = ""
         try:
             fh.seek(start)
             left = length
             while left > 0:
-                buf = fh.read(min(1024 * 1024, left))
+                buf = fh.read(min(256 * 1024, left))
                 if not buf:
                     break
                 self.wfile.write(buf)
@@ -772,6 +850,10 @@ class Handler(BaseHTTPRequestHandler):
                 if job:
                     job.add(len(buf))
             self.wfile.flush()
+            try:
+                self.connection.shutdown(socket.SHUT_WR)
+            except OSError:
+                pass
             if job:
                 job.finish()
         except (ConnectionError, BrokenPipeError, OSError) as e:
@@ -868,6 +950,8 @@ def try_firewall(port: int) -> str:
 
 
 class BlastServer(ThreadingHTTPServer):
+    request_queue_size = 128
+
     def server_bind(self) -> None:
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:

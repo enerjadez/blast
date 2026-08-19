@@ -60,6 +60,7 @@
     .btn:hover { background: #2d2d36; }
     .btn.lime { background: var(--lime); color: var(--lime-ink); }
     .btn.ghost { background: transparent; border: 1px solid var(--line); }
+    a.btn { text-decoration: none; display: inline-block; }
     .btn.warn { background: transparent; border: 1px solid var(--line); color: var(--mute); }
 
     .grid { display: grid; gap: 14px; grid-template-columns: 1fr; }
@@ -105,16 +106,28 @@
     .bar > i { display: block; height: 100%; width: 0; background: var(--lime); }
     .meter .meta { color: var(--mute); font-size: 12px; }
     #graph { display: block; width: 100%; height: 88px; margin-top: 10px; }
+    .meter.prep .num, .meter.prep .unit, .meter.prep #graph { display: none; }
 
+    .pickbar { display: none; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; align-items: center; }
+    body.tablet .pickbar { display: flex; }
     .file { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .file input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 auto; accent-color: #d6ff3f; }
     .file:last-child { border-bottom: 0; }
     .ico {
       width: 36px; height: 36px; border-radius: 8px; background: #222228;
       display: grid; place-items: center; font-size: 10px; font-weight: 800; color: var(--lime); flex: 0 0 auto;
     }
     .file .info { flex: 1; min-width: 0; }
-    .file .name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .file .name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+    .file .name span { overflow: hidden; text-overflow: ellipsis; }
     .file .sub { color: var(--mute); font-size: 12px; margin-top: 2px; }
+    .tick {
+      flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%;
+      background: var(--lime); color: var(--lime-ink); font-size: 12px; font-weight: 800;
+      display: none; place-items: center; line-height: 1;
+    }
+    .file.got .tick { display: grid; }
+    .file.got .ico { box-shadow: inset 0 0 0 1px #4a5a18; }
     .file .acts { display: flex; gap: 6px; flex: 0 0 auto; }
     .empty { color: var(--dim); font-size: 13px; padding: 16px 0; }
     .crumbs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
@@ -193,6 +206,10 @@
         <h2 id="recvTitle">Receive</h2>
         <p class="why" id="recvWhy"></p>
         <div class="crumbs" id="crumbs" hidden></div>
+        <div class="pickbar tablet-only" id="pickbar">
+          <button class="btn ghost" id="selAllBtn" type="button">Select all</button>
+          <button class="btn lime" id="saveSelBtn" type="button">Save selected</button>
+        </div>
         <div id="list"><div class="empty">Waiting…</div></div>
         <div class="row-btns pc-only" style="margin-top:12px">
           <button class="btn ghost" id="inboxBtn" type="button">Open inbox folder</button>
@@ -207,7 +224,23 @@
 
   <script>
     const $ = (id) => document.getElementById(id);
-    const state = { boot: null, browse: null, busy: false, name: "", last: { shared: [], inbox: [], peers: [] } };
+    const state = { boot: null, browse: null, busy: false, name: "", last: { shared: [], inbox: [], peers: [] }, picked: new Map(), visible: [] };
+    const uuid = () => {
+      const c = globalThis.crypto;
+      if (c && typeof c.randomUUID === "function") return c.randomUUID();
+      if (c && typeof c.getRandomValues === "function") {
+        const a = new Uint8Array(16);
+        c.getRandomValues(a);
+        a[6] = (a[6] & 0x0f) | 0x40;
+        a[8] = (a[8] & 0x3f) | 0x80;
+        const h = [...a].map((b) => b.toString(16).padStart(2, "0")).join("");
+        return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+      }
+      return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
+        const r = (Math.random() * 16) | 0;
+        return (ch === "x" ? r : (r & 3) | 8).toString(16);
+      });
+    };
 
     const guessName = () => {
       const ua = navigator.userAgent || "";
@@ -269,26 +302,48 @@
       lastB: 0,
       ema: 0,
       hideT: 0,
+      live: false,
+      prepare(label) {
+        clearTimeout(this.hideT);
+        this.samples = [];
+        this.live = false;
+        $("meter").classList.add("on", "prep");
+        $("mbps").textContent = "—";
+        $("bar").style.width = "0%";
+        $("speedMeta").textContent = label || "Starting download…";
+      },
       start(label, total) {
         this.samples = [];
         this.lastT = performance.now();
         this.lastB = 0;
         this.ema = 0;
+        this.live = true;
         clearTimeout(this.hideT);
-        this.tick(0, total, label);
+        $("meter").classList.add("on");
+        $("meter").classList.remove("prep");
+        $("speedMeta").textContent = label || "";
+        $("bar").style.width = total ? "0%" : "0%";
+        $("mbps").textContent = "0";
       },
       tick(done, total, label) {
+        if (!this.live) this.start(label, total);
         const now = performance.now();
         const dt = (now - this.lastT) / 1000;
         const db = done - this.lastB;
-        const inst = dt > 0.04 ? (db / 1048576) / dt : this.ema;
-        this.ema = this.ema ? this.ema * 0.7 + inst * 0.3 : inst;
-        this.lastT = now;
-        this.lastB = done;
-        this.samples.push({ t: now, mbps: this.ema });
+        if (dt > 0.08 && db >= 0) {
+          const inst = (db / 1048576) / dt;
+          this.ema = this.ema ? this.ema * 0.65 + inst * 0.35 : inst;
+          this.lastT = now;
+          this.lastB = done;
+          this.samples.push({ t: now, mbps: this.ema });
+        } else if (this.lastT === 0) {
+          this.lastT = now;
+          this.lastB = done;
+        }
         const cutoff = now - 20000;
         this.samples = this.samples.filter((s) => s.t >= cutoff);
         $("meter").classList.add("on");
+        $("meter").classList.remove("prep");
         $("mbps").textContent = this.ema >= 100 ? this.ema.toFixed(0) : this.ema.toFixed(1);
         const pct = total ? (done / total) * 100 : 0;
         $("bar").style.width = `${Math.max(0, Math.min(100, pct))}%`;
@@ -296,9 +351,11 @@
         this.draw();
       },
       finish(label) {
+        this.live = false;
+        $("meter").classList.remove("prep");
         $("speedMeta").textContent = label || "done";
         $("bar").style.width = "100%";
-        this.hideT = setTimeout(() => $("meter").classList.remove("on"), 5000);
+        this.hideT = setTimeout(() => $("meter").classList.remove("on"), 4000);
       },
       draw() {
         const c = $("graph");
@@ -394,21 +451,33 @@
       await refresh();
     }
 
+    function fileSig(data) {
+      const pack = (arr) => (arr || []).map((x) => `${x.id}:${x.size}:${x.name}`).join("|");
+      return pack(data.shared) + "#" + pack(data.inbox) + "#" + (state.browse ? state.browse.id + ":" + state.browse.path : "");
+    }
+
     async function refresh() {
       const data = await api(`/api/state?name=${encodeURIComponent(state.name)}`);
-      state.last = data;
       renderPeers(data.peers || []);
+      const sig = fileSig(data);
+      const same = sig === state.listSig;
+      state.last = data;
       if (state.boot?.local) {
         $("sendTitle").textContent = `Share with ${otherName()}`;
         $("recvTitle").textContent = `From ${otherName()}`;
-        renderSharing(data.shared || []);
-        if (state.browse) return browseCurrent();
-        renderIncoming(data.inbox || []);
-      } else {
-        $("sendTitle").textContent = `Send to ${state.boot.host}`;
-        if (state.browse) return browseCurrent();
-        renderOffer(data.shared || []);
+        if (!same) {
+          state.listSig = sig;
+          renderSharing(data.shared || []);
+          if (state.browse) return browseCurrent();
+          renderIncoming(data.inbox || []);
+        }
+        return;
       }
+      $("sendTitle").textContent = `Send to ${state.boot.host}`;
+      if (same) return;
+      state.listSig = sig;
+      if (state.browse) return browseCurrent();
+      renderOffer(data.shared || []);
     }
 
     async function browseCurrent() {
@@ -443,23 +512,62 @@
       });
     }
 
+    const GOT = {
+      load() {
+        try { return JSON.parse(localStorage.getItem("blast-got-v2") || "{}"); }
+        catch { return {}; }
+      },
+      key(item) {
+        const path = item.path || "";
+        const name = item.name || "";
+        if (item.kind === "dir" || item.dir) return `dir:${name}:${path}`;
+        return `file:${name}:${item.size || 0}:${path}`;
+      },
+      has(item) { return !!this.load()[this.key(item)]; },
+      mark(item) {
+        const m = this.load();
+        m[this.key(item)] = Date.now();
+        localStorage.setItem("blast-got-v2", JSON.stringify(m));
+      },
+    };
+
     function row(item, buttons) {
       const el = document.createElement("div");
-      el.className = "file";
+      el.className = "file" + (item.got ? " got" : "");
+      const canCheck = !state.boot?.local && item.checkable;
       el.innerHTML = `
+        ${canCheck ? `<input type="checkbox" ${state.picked.has(GOT.key(item)) ? "checked" : ""} />` : ""}
         <div class="ico">${item.kind === "dir" || item.dir ? "DIR" : extOf(item.name)}</div>
-        <div class="info"><div class="name"></div><div class="sub"></div></div>
+        <div class="info"><div class="name"><i class="tick">✓</i><span></span></div><div class="sub"></div></div>
         <div class="acts"></div>
       `;
-      el.querySelector(".name").textContent = item.name;
+      el.querySelector(".name span").textContent = item.name;
+      const box = el.querySelector("input[type=checkbox]");
+      if (box) {
+        box.addEventListener("click", (e) => e.stopPropagation());
+        box.addEventListener("change", () => {
+          const k = GOT.key(item);
+          if (box.checked) state.picked.set(k, item);
+          else state.picked.delete(k);
+          updatePickBar();
+        });
+      }
       el.querySelector(".sub").textContent = item.sub;
       const acts = el.querySelector(".acts");
       buttons.forEach((b) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
+        let btn;
+        if (b.href) {
+          btn = document.createElement("a");
+          btn.href = b.href;
+          btn.setAttribute("download", b.download || item.name || "file");
+          btn.rel = "noopener";
+        } else {
+          btn = document.createElement("button");
+          btn.type = "button";
+        }
         btn.className = "btn " + (b.cls || "");
         btn.textContent = b.label;
-        btn.onclick = b.onclick;
+        if (b.onclick) btn.addEventListener("click", b.onclick);
         acts.appendChild(btn);
       });
       return el;
@@ -509,24 +617,42 @@
         return;
       }
       el.innerHTML = "";
+      state.visible = [];
       items.forEach((item) => {
         if (item.kind === "dir") {
           el.appendChild(row({
             ...item,
-            sub: `folder on ${state.boot.host}`,
+            got: GOT.has(item),
+            sub: GOT.has(item) ? `folder · already saved` : `folder on ${state.boot.host}`,
           }, [
-            { label: "Open", onclick: () => { state.browse = { id: item.id, path: "", name: item.name }; refresh(); } },
-            { label: "Save folder", cls: "lime", onclick: () => downloadZip(item.id, "", item.name) },
+            { label: "Open", onclick: () => { state.browse = { id: item.id, path: "", name: item.name }; state.listSig = ""; refresh(); } },
+            {
+              label: GOT.has(item) ? "Save again" : "Save folder",
+              cls: "lime",
+              href: `/r/${state.boot.token}/api/zip/${item.id}`,
+              download: `${item.name}.zip`,
+              onclick: () => noteSaved(item, `${item.name}.zip`),
+            },
           ]));
         } else {
+          const rec = { ...item, shareId: item.id, path: "", checkable: true };
+          state.visible.push(rec);
           el.appendChild(row({
-            ...item,
-            sub: `${fmt(item.size)} · on ${state.boot.host}`,
+            ...rec,
+            got: GOT.has(rec),
+            sub: GOT.has(rec) ? `${fmt(item.size)} · saved` : `${fmt(item.size)} · on ${state.boot.host}`,
           }, [
-            { label: "Save to tablet", cls: "lime", onclick: () => downloadShare(item) },
+            {
+              label: GOT.has(rec) ? "Save again" : "Save",
+              cls: "lime",
+              href: `/r/${state.boot.token}/api/dl/${item.id}`,
+              download: item.name,
+              onclick: () => noteSaved(rec, item.name),
+            },
           ]));
         }
       });
+      updatePickBar();
     }
 
     function renderEntries(entries) {
@@ -547,27 +673,44 @@
         refresh();
       };
       el.appendChild(up);
+      state.visible = [];
       entries.forEach((item) => {
         if (item.dir) {
           el.appendChild(row({
             ...item,
-            sub: "folder",
+            got: GOT.has(item),
+            sub: GOT.has(item) ? "folder · already saved" : "folder",
           }, [
             { label: "Open", onclick: () => { state.browse.path = item.path; refresh(); } },
-            ...(!state.boot.local ? [{ label: "Save folder", cls: "lime", onclick: () => downloadZip(state.browse.id, item.path, item.name) }] : []),
+            ...(!state.boot.local ? [{
+              label: GOT.has(item) ? "Save again" : "Save folder",
+              cls: "lime",
+              href: `/r/${state.boot.token}/api/zip/${state.browse.id}?${new URLSearchParams({ p: item.path })}`,
+              download: `${item.name}.zip`,
+              onclick: () => noteSaved(item, `${item.name}.zip`),
+            }] : []),
           ]));
         } else {
+          const rec = { ...item, shareId: state.browse.id, checkable: true };
+          state.visible.push(rec);
           el.appendChild(row({
-            ...item,
-            sub: fmt(item.size),
+            ...rec,
+            got: GOT.has(rec),
+            sub: GOT.has(rec) ? `${fmt(item.size)} · saved` : fmt(item.size),
           }, [
-            { label: state.boot.local ? "Show" : "Save to tablet", cls: "lime", onclick: () => {
-              if (state.boot.local) return;
-              downloadPath(state.browse.id, item.path, item.name, item.size);
-            } },
+            state.boot.local
+              ? { label: "Show", cls: "lime", onclick: () => {} }
+              : {
+                  label: GOT.has(rec) ? "Save again" : "Save",
+                  cls: "lime",
+                  href: `/r/${state.boot.token}/api/dl/${state.browse.id}?${new URLSearchParams({ p: item.path })}`,
+                  download: item.name,
+                  onclick: () => noteSaved(rec, item.name),
+                },
           ]));
         }
       });
+      updatePickBar();
     }
 
     async function unshare(id) {
@@ -579,111 +722,62 @@
       await api("/api/reveal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(id ? { id } : { inbox: true }) });
     }
 
-    const BLOB_CAP = 180 * 1024 * 1024;
-
-    function downloadShare(item) {
-      const url = `/r/${state.boot.token}/api/dl/${item.id}`;
-      pullFile(url, item.name, item.size || 0);
-    }
-    function downloadPath(id, path, name, size) {
-      const q = new URLSearchParams({ p: path || "" });
-      pullFile(`/r/${state.boot.token}/api/dl/${id}?${q}`, name, size || 0);
-    }
-    function downloadZip(id, path, name) {
-      const job = crypto.randomUUID();
-      const q = new URLSearchParams({ p: path || "", job });
-      const url = `/r/${state.boot.token}/api/zip/${id}?${q}`;
-      meter.start(`packing ${name}…`, 0);
-      const poll = setInterval(async () => {
-        try {
-          const j = await api(`/api/job/${job}`);
-          if (j.phase === "packing") {
-            meter.tick(0, 0, `zipping ${name}…`);
-          } else if (j.total) {
-            meter.tick(j.done, j.total, `${name}.zip · ${fmt(j.done)} / ${fmt(j.total)}`);
-          }
-          if (j.finished) {
-            clearInterval(poll);
-            if (j.error) showErr(j.error);
-            else meter.finish(`saved ${name}.zip`);
-          }
-        } catch {}
-      }, 250);
-      nativeSave(url, `${name}.zip`);
-      setTimeout(() => clearInterval(poll), 30 * 60 * 1000);
+    function updatePickBar() {
+      const n = state.picked.size;
+      const btn = $("saveSelBtn");
+      if (btn) btn.textContent = n ? `Save selected (${n})` : "Save selected";
     }
 
-    async function pullFile(url, name, size) {
-      showErr("");
-      if (state.busy) { toast("Wait for the current transfer"); return; }
-      if (size && size > BLOB_CAP) {
-        const job = crypto.randomUUID();
-        meter.start(name, size);
-        watchJob(job, name, size);
-        nativeSave(`${url}${url.includes("?") ? "&" : "?"}job=${job}&n=${Date.now()}`, name);
+    function fileHref(item) {
+      if (item.shareId && item.path) {
+        return `/r/${state.boot.token}/api/dl/${item.shareId}?${new URLSearchParams({ p: item.path })}`;
+      }
+      return `/r/${state.boot.token}/api/dl/${item.id || item.shareId}`;
+    }
+
+    function kickDownload(href, filename) {
+      const a = document.createElement("a");
+      a.href = href;
+      a.setAttribute("download", filename);
+      a.rel = "noopener";
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => a.remove(), 8000);
+    }
+
+    function noteSaved(item, name) {
+      if (item) GOT.mark(item);
+      toast(name ? `Saving ${name}` : "Saving…");
+    }
+
+    function saveSelected() {
+      const items = [...state.picked.values()].filter((it) => it.kind !== "dir" && !it.dir);
+      if (!items.length) {
+        toast("Tick some files first");
         return;
       }
-      state.busy = true;
-      meter.start(name, size);
-      try {
-        const res = await fetch(`${url}${url.includes("?") ? "&" : "?"}n=${Date.now()}`, { cache: "no-store" });
-        if (!res.ok) throw new Error(`download failed (${res.status})`);
-        const total = parseInt(res.headers.get("content-length") || size || 0, 10);
-        if (total > BLOB_CAP) {
-          const job = crypto.randomUUID();
-          watchJob(job, name, total);
-          nativeSave(`${url}${url.includes("?") ? "&" : "?"}job=${job}&n=${Date.now()}`, name);
-          return;
-        }
-        const reader = res.body.getReader();
-        const chunks = [];
-        let got = 0;
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value);
-          got += value.byteLength;
-          meter.tick(got, total || got, `${name} · ${fmt(got)}${total ? " / " + fmt(total) : ""}`);
-        }
-        const blob = new Blob(chunks, { type: "application/octet-stream" });
-        const href = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = href;
-        a.download = name;
-        a.rel = "noopener";
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => { a.remove(); URL.revokeObjectURL(href); }, 60000);
-        meter.finish(`saved ${name}`);
-        toast("Saved to tablet");
-      } catch (e) {
-        showErr(e.message || String(e));
-      } finally {
-        state.busy = false;
+      showErr("");
+      if (items.length <= 3) {
+        items.forEach((item) => {
+          kickDownload(fileHref(item), item.name);
+          GOT.mark(item);
+        });
+        toast(`Started ${items.length} — check Downloads`);
+        refresh().catch(() => {});
+        return;
       }
-    }
-
-    function nativeSave(url, name) {
-      const frame = document.getElementById("dlframe") || Object.assign(document.createElement("iframe"), { id: "dlframe" });
-      frame.setAttribute("hidden", "");
-      frame.style.display = "none";
-      if (!frame.parentNode) document.body.appendChild(frame);
-      frame.src = url;
-    }
-
-    function watchJob(job, name, size) {
-      const poll = setInterval(async () => {
-        try {
-          const j = await api(`/api/job/${job}`);
-          meter.tick(j.done, j.total || size, `${name} · ${fmt(j.done)} / ${fmt(j.total || size)}`);
-          if (j.finished) {
-            clearInterval(poll);
-            if (j.error) showErr(j.error);
-            else { meter.finish(`saved ${name}`); toast("Saved to tablet"); }
-          }
-        } catch {}
-      }, 250);
-      setTimeout(() => clearInterval(poll), 30 * 60 * 1000);
+      const q = new URLSearchParams();
+      const shareIds = new Set(items.map((it) => it.shareId || it.id));
+      if (shareIds.size === 1 && items.every((it) => it.path)) {
+        q.set("id", [...shareIds][0]);
+        items.forEach((it) => q.append("p", it.path));
+      } else {
+        items.forEach((it) => q.append("id", it.shareId || it.id));
+      }
+      kickDownload(`/r/${state.boot.token}/api/bundle?${q}`, "blast-selected.zip");
+      items.forEach((it) => GOT.mark(it));
+      toast("Saving as one zip — check Downloads");
     }
 
     const CHUNK = 8 * 1024 * 1024;
@@ -717,7 +811,7 @@
     }
 
     async function uploadOne(file, hooks) {
-      const id = crypto.randomUUID();
+      const id = uuid();
       const chunks = Math.max(1, Math.ceil(file.size / CHUNK));
       await api(`/api/upload/${id}`, {
         method: "POST",
@@ -777,9 +871,14 @@
       } catch (e) { showErr(e.message); }
     };
     $("inboxBtn").onclick = () => reveal(null);
+    $("selAllBtn").onclick = () => {
+      state.visible.forEach((it) => state.picked.set(GOT.key(it), it));
+      refresh().catch(() => {});
+    };
+    $("saveSelBtn").onclick = () => saveSelected();
 
     boot().catch((e) => { $("who").textContent = "Offline"; showErr(e.message || String(e)); });
-    setInterval(() => { if (!state.busy) refresh().catch(() => {}); }, 2000);
+    setInterval(() => { if (!state.busy) refresh().catch(() => {}); }, 4000);
   </script>
 </body>
 </html>
